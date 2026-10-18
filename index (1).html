@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>StudyBuddy AI</title>
+<style>
+:root{--ink:#e9eefb;--mut:#8d9ab8;--card:#ffffff0d;--line:#ffffff1f;--g:linear-gradient(135deg,#4cc3e6,#5cc08a)}
+*{box-sizing:border-box}
+body{margin:0;font:17px system-ui,sans-serif;color:var(--ink);background:radial-gradient(circle at 30% 10%,#10304f,#070b16 60%);height:100dvh;display:flex;flex-direction:column;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{display:flex;align-items:center;gap:12px;padding:14px 16px 6px}
+.logo{width:56px;height:56px;border-radius:16px;background:var(--g);display:grid;place-items:center;font-size:28px}
+h1{margin:0;font-size:24px}.sub{color:var(--mut);font-size:14px}
+#mode{margin-left:auto;border:1px solid #3fae86;color:#6ee7b7;background:#0f3a3050;padding:8px 14px;border-radius:99px;font-size:14px}
+.row{display:flex;gap:8px;overflow-x:auto;padding:8px 16px;scrollbar-width:none}
+.pill{flex:none;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:10px 16px;border-radius:99px;font-size:15px}
+.pill.on{background:var(--g);color:#06202a;border-color:transparent;font-weight:600}
+.tabs{display:flex;margin:4px 16px;padding:6px;border:1px solid var(--line);border-radius:20px;background:var(--card)}
+.tabs button{flex:1;padding:12px;border:0;border-radius:14px;background:none;color:var(--mut);font-size:17px}
+.tabs button.on{background:var(--g);color:#06202a;font-weight:600}
+#chat{flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:10px}
+.b{max-width:92%;padding:14px 16px;border:1px solid var(--line);background:var(--card);border-radius:20px;line-height:1.5}
+.b p{margin:0 0 8px}.me{align-self:flex-end;background:var(--g);color:#06202a;border:0}
+.ra{color:#5cc9e6;font-size:15px;cursor:pointer}
+.opt{display:block;width:100%;margin-top:8px;padding:12px;border:1px solid var(--line);border-radius:14px;background:none;color:var(--ink);font-size:16px;text-align:left}
+.opt.ok{background:#16a34a55;border-color:#22c55e}.opt.bad{background:#dc262655;border-color:#ef4444}
+.next{margin-top:10px;padding:10px 16px;border:0;border-radius:12px;background:var(--g);color:#06202a;font-weight:600}
+.lbl{color:var(--mut);font-size:15px;padding:0 16px}
+.bar{display:flex;gap:8px;margin:8px 16px;padding:8px;border:1px solid var(--line);border-radius:22px;background:var(--card)}
+.bar input{flex:1;min-width:0;border:0;outline:0;background:none;color:var(--ink);font-size:17px;padding:0 6px}
+.ic{width:46px;height:46px;border:0;border-radius:14px;background:#ffffff12;color:var(--ink);font-size:20px}
+.ic.send{background:var(--g);color:#06202a}
+details{margin:0 16px 8px;color:var(--mut);font-size:12px}pre{max-height:90px;overflow:auto;white-space:pre-wrap;margin:4px 0}
+</style></head><body>
+<header><div class="logo">🧠</div><div><h1>StudyBuddy AI</h1><div class="sub">Voice-first learning assistant</div></div><span id="mode">…</span></header>
+<div class="row" id="topics"></div>
+<div class="tabs" id="tabs"></div>
+<div id="chat"></div>
+<div id="askUI">
+  <div class="lbl">💡 Try a question</div><div class="row" id="samples"></div>
+  <div class="bar"><button class="ic" id="mic" onclick="listen()">🎤</button><input id="q" placeholder="Ask about Python, Java, security, AI" onkeydown="if(event.key==='Enter')ask()"><button class="ic send" onclick="ask()">➤</button></div>
+</div>
+<details><summary>Alexa+ / MCP call log (Streamable HTTP)</summary><pre id="log"></pre></details>
+<script>
+const T={python:"Python",java:"Java",cybersecurity:"Cybersecurity",ai:"AI Concepts"};
+let topic="python",tab="ask",rid=0,voice=false,samples={};
+const $=id=>document.getElementById(id);
+function logit(x){$("log").textContent+=JSON.stringify(x).slice(0,300)+"\n";$("log").scrollTop=1e9}
+async function rpc(method,params,notify){
+  const body={jsonrpc:"2.0",method,params};if(!notify)body.id=++rid;logit(body);
+  const r=await fetch("/mcp",{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json, text/event-stream"},body:JSON.stringify(body)});
+  if(notify)return;const j=await r.json();logit(j);return j}
+async function call(name,args){return (await rpc("tools/call",{name,arguments:args})).result}
+function say(t){if(!window.speechSynthesis)return;speechSynthesis.cancel();speechSynthesis.speak(new SpeechSynthesisUtterance(t))}
+function add(cls,text){const d=document.createElement("div");d.className="b "+(cls||"");const p=document.createElement("p");p.textContent=text;d.append(p);$("chat").append(d);$("chat").scrollTop=1e9;return d}
+function bot(t){const d=add("",t),a=document.createElement("span");a.className="ra";a.textContent="🔊 Read aloud";a.onclick=()=>say(t);d.append(a);if(voice)say(t);return d}
+function pills(id,items,on,fn){const box=$(id);box.innerHTML="";items.forEach(([k,label])=>{const b=document.createElement("button");b.className="pill"+(k===on?" on":"");b.textContent=label;b.onclick=()=>fn(k);box.append(b)})}
+function draw(){
+  pills("topics",Object.entries(T),topic,k=>{topic=k;enter()});
+  const tabs=$("tabs");tabs.innerHTML="";[["ask","✨ Ask"],["quiz","❓ Quiz"],["notes","📖 Notes"]].forEach(([k,l])=>{const b=document.createElement("button");b.className=k===tab?"on":"";b.textContent=l;b.onclick=()=>{tab=k;enter()};tabs.append(b)});
+  $("askUI").style.display=tab==="ask"?"block":"none";
+  pills("samples",(samples[topic]||[]).map(s=>[s,s]),"",s=>ask(s))}
+async function enter(){draw();$("chat").innerHTML="";
+  try{if(tab==="ask")bot("Hi! I'm StudyBuddy. Ask me to explain "+T[topic]+", or tap a sample question below.");
+  else if(tab==="notes")bot((await call("revision_notes",{topic})).content[0].text);
+  else await quiz()}catch(e){bot("Sorry, I could not reach the server.")}}
+async function ask(q){q=q||$("q").value.trim();if(!q)return;$("q").value="";add("me",q);
+  try{bot((await call("explain_concept",{topic,question:q})).content[0].text)}catch(e){bot("Sorry, I could not reach the server.")}}
+async function quiz(){const r=await call("quiz_question",{topic}),d=r.structuredContent,b=add("",d.question);
+  d.options.forEach((o,i)=>{const x=document.createElement("button");x.className="opt";x.textContent=o;
+    x.onclick=async()=>{b.querySelectorAll(".opt").forEach(e=>e.disabled=true);const c=await call("check_answer",{topic,question_id:d.id,choice:i});
+      x.classList.add(c.structuredContent.correct?"ok":"bad");const m=document.createElement("p");m.textContent=c.content[0].text;m.style.marginTop="10px";b.append(m);
+      const n=document.createElement("button");n.className="next";n.textContent="Next question";n.onclick=()=>{$("chat").innerHTML="";quiz()};b.append(n);if(voice)say(c.content[0].text)};b.append(x)});
+  if(voice)say(r.content[0].text)}
+function listen(){const S=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!S){add("","Voice input needs Chrome. You can type instead.");return}
+  const r=new S();r.lang="en-IN";voice=true;$("mic").textContent="…";r.onresult=e=>ask(e.results[0][0].transcript);r.onend=()=>$("mic").textContent="🎤";r.start()}
+(async()=>{
+  try{const h=await (await fetch("/health")).json();$("mode").textContent=h.mode==="ai"?"AI mode":"Demo ready";
+    await rpc("initialize",{protocolVersion:"2025-11-25",capabilities:{},clientInfo:{name:"studybuddy-web-sim",version:"1.0"}});
+    await rpc("notifications/initialized",{},true);
+    samples=(await call("list_topics",{})).structuredContent.topics;enter()
+  }catch(e){draw();add("","Cannot reach the server. Is server.py running?")}
+})();
+</script></body></html>
